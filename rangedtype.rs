@@ -43,14 +43,14 @@ macro_rules! ranged_type_impl_inner( ($ident: ident, $Which: ident, $which: iden
 	}
 	impl $Which<$ident,$ident> for $ident
 	{
-		fn $which(&self, y: &$ident) -> $ident
+		fn $which(self, y: $ident) -> $ident
 		{
 			let min: $ident = std::num::Bounded::min_value();
 			let max: $ident = std::num::Bounded::max_value();
-			match self. $checked_which_internal (y)
+			match self. $checked_which_internal (&y)
 			{
 				Some(x) => x,
-				None => panic!("result {} - {} lies out of range [{}, {}] for bounded type", *self, *y, min, max),
+				None => panic!("result {} - {} lies out of range [{}, {}] for bounded type", self, y, min, max),
 			}
 		}
 	}
@@ -79,6 +79,7 @@ macro_rules! ranged_type( ($ident: ident, $lower: expr, $upper: expr) => (
 			}
 		}
 	}
+	impl Copy for $ident {}
 	impl std::num::Bounded for $ident
 	{
 		fn min_value() -> $ident {unsafe {$ident::from_primitive_internal($lower)}}
