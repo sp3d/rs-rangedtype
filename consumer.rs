@@ -1,3 +1,4 @@
+#![allow(dead_code, deprecated)]
 #![feature(phase)]
 
 #[phase(plugin)]
@@ -10,10 +11,10 @@ ranged_type!(Digit, 0, 9)
 ranged_type!(SizeTest, 0, 65535)
 
 fn main() {
-	let x = Digit3;
+	let x = Digit::Digit3;
 	let y: Digit = FromPrimitive::from_int(9).unwrap();
-	println!("{} and {}", Digit2+Digit2, y-x);
+	println!("{} and {}", Digit::Digit2+Digit::Digit2, y-x);
 	
 	let x: SizeTest = std::num::Bounded::max_value();
-	println!("{}", x/SizeTest3000);
+	println!("{}", x/SizeTest::SizeTest3000);
 }

@@ -1,21 +1,20 @@
 #![crate_name = "rangedtype"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
-#![license = "WTFPL"]
 
-#![feature(plugin_registrar, managed_boxes, macro_rules)]
+#![feature(plugin_registrar, macro_rules, globs)]
 
 extern crate syntax;
 extern crate rustc;
 
 use rustc::plugin::Registry;
 use syntax::ast;
+use syntax::ptr::P;
 use syntax::ext::base;
-use syntax::ext::base::{ExtCtxt, MacItem};
+use syntax::ext::base::{ExtCtxt, MacItems};
 use syntax::ext::build::AstBuilder;
 use syntax::parse::token;
 use syntax::codemap::{Span, mk_sp};
-use std::gc::{Gc, GC};
 
 #[macro_export]
 macro_rules! ranged_type_impl_inner( ($ident: ident, $Which: ident, $which: ident, $CheckedWhich: ident, $checked_which: ident, $checked_which_internal: ident) => (
@@ -23,13 +22,23 @@ macro_rules! ranged_type_impl_inner( ($ident: ident, $Which: ident, $which: iden
 	{
 		fn $checked_which_internal (&self, y: &$ident) -> Option<$ident>
 		{
+			use std::num::Int;
 			let sv = &(*self as int);
 			let yv = &(*y as int);
-			match sv. $checked_which (yv)
+			match sv. $checked_which (*yv)
 			{
 				Some(n) => std::num::FromPrimitive::from_int(n),
 				_ => None,
 			}
+		}
+//checked arithmetic traits have been removed :(
+/*	}
+	impl $CheckedWhich for $ident
+	{*/
+		#[allow(dead_code)]
+		pub fn $checked_which (&self, y: &$ident) -> Option<$ident>
+		{
+			self. $checked_which_internal (y)
 		}
 	}
 	impl $Which<$ident,$ident> for $ident
@@ -41,15 +50,8 @@ macro_rules! ranged_type_impl_inner( ($ident: ident, $Which: ident, $which: iden
 			match self. $checked_which_internal (y)
 			{
 				Some(x) => x,
-				None => fail!("result {} - {} lies out of range [{}, {}] for bounded type", *self, *y, min, max),
+				None => panic!("result {} - {} lies out of range [{}, {}] for bounded type", *self, *y, min, max),
 			}
-		}
-	}
-	impl $CheckedWhich for $ident
-	{
-		fn $checked_which (&self, y: &$ident) -> Option<$ident>
-		{
-			self. $checked_which_internal (y)
 		}
 	}
 ))
@@ -111,7 +113,7 @@ macro_rules! ranged_type( ($ident: ident, $lower: expr, $upper: expr) => (
 	}
 	impl std::fmt::Show for $ident
 	{
-		fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::FormatError>
+		fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error>
 		{
 			(*self as int).fmt(formatter)
 		}
@@ -128,25 +130,42 @@ pub fn plugin_registrar(reg: &mut Registry) {
 	reg.register_macro("ranged_type_enumdef", expand_syntax_ext);
 }
 
-pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> Box<base::MacResult>
+pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> Box<base::MacResult+'static>
 {
 	let (base_name, lower_expr, upper_expr) = parse_tts(cx, tts);
 
 	let base_name_str = token::get_ident(base_name.ident);
 
 	macro_rules! get_int( ($x:ident) => (
-		match $x.node {
+		match $x.node
+		{
 			// expression is a literal
-			ast::ExprLit(lit) => match lit.node {
+			ast::ExprLit(ref lit) => match lit.node
+			{
 				// int literal specifically
-				ast::LitInt(ref s, _) => {
-					s.clone()
-				}
-				ast::LitIntUnsuffixed(ref s) => {
-					s.clone()
+				ast::LitInt(s, lit_int_type) => {
+					let sign = match lit_int_type
+					{
+						ast::UnsuffixedIntLit(sign)|ast::SignedIntLit(ast::TyI, sign) => {
+							sign
+						},
+						ast::UnsignedIntLit(ast::TyU) => ast::Plus,
+						_ => {
+							cx.span_err($x.span, "range bounds must be unsuffixed integer literals!");
+							return base::DummyResult::expr(sp);
+						},
+					};
+					if sign == ast::Plus
+					{
+						s as i64
+					}
+					else
+					{
+						-(s as i64)
+					}
 				}
 				_ => {
-					cx.span_err($x.span, "range bounds must be literals of type int!");
+					cx.span_err($x.span, "range bounds must be unsuffixed integer literals!");
 					return base::DummyResult::expr(sp);
 				}
 			},
@@ -176,7 +195,7 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
 	{
 		let v = lower+(index as i64);
 		if v < 0
-			{format!("{}Neg{}", base_name_str, std::num::abs(v))}
+			{format!("{}Neg{}", base_name_str, std::num::SignedInt::abs(v))}
 		else
 			{format!("{}{}", base_name_str, v)}
 	};
@@ -195,7 +214,7 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
 		}
 	);
 
-	variants.push(box(GC) first_variant);
+	variants.push(P(first_variant));
 
 	//add the rest of the variants
 	for i in std::iter::range(1, count+1)
@@ -203,10 +222,10 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
 		let ident_name = gen_ident_name(lower, i);
 
 		let ident = cx.ident_of(ident_name.as_slice());
-		variants.push(box(GC) cx.variant(sp/*TODO: some span*/, ident, vec![]));
+		variants.push(P(cx.variant(sp/*TODO: some span*/, ident, vec![])));
 	}
 
-	return MacItem::new(cx.item_enum(sp, base_name.ident, ast::EnumDef {variants: variants}));
+	return MacItems::new(Some(cx.item_enum(sp, base_name.ident, ast::EnumDef {variants: variants})).into_iter());
 }
 
 #[allow(dead_code)]
@@ -217,18 +236,18 @@ struct Ident
 }
 
 fn parse_tts(cx: &ExtCtxt,
-	tts: &[ast::TokenTree]) -> (Ident, Gc<ast::Expr>, Gc<ast::Expr>)
+	tts: &[ast::TokenTree]) -> (Ident, P<ast::Expr>, P<ast::Expr>)
 {
 	let mut p = cx.new_parser_from_tts(tts);
 	let span_lo = p.span.lo;
 	let ident = p.parse_ident();
 	let span_hi = p.last_span.hi;
 	let base_name = Ident {ident: ident, span: mk_sp(span_lo, span_hi)};
-	p.expect(&token::COMMA);
+	p.expect(&token::Comma);
 	let lower_bound = p.parse_expr();
-	p.expect(&token::COMMA);
+	p.expect(&token::Comma);
 	let upper_bound = p.parse_expr();
-	if p.token != token::EOF {
+	if p.token != token::Eof {
 		p.unexpected();
 	}
 	(base_name, lower_bound, upper_bound)

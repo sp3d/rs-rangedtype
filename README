@@ -1,6 +1,6 @@
 rs-rangedtype: ranged types (a la vhdl) for rust
 
-This implementation is still very rudimentary, but the useful parts are the procedural macro which generates the enumerations and the macro magic to generate impls. The checked arithmetic operations return None in case of over/underflow, and the regular operations fail! the task with a descriptive message.
+This implementation is still very rudimentary, but the useful parts are the procedural macro which generates the enumerations and the macro magic to generate impls. The checked arithmetic operations return None in case of over/underflow, and the regular operations panic! the task with a descriptive message.
 
 Bugs:
 	- This is the simplest implementation that might possibly work. It is based on enums, and large numbers of variants can bloat compile times or overflow the compiler's stack.
