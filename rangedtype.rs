@@ -14,7 +14,6 @@ use syntax::ext::base;
 use syntax::ext::base::{ExtCtxt, MacItem};
 use syntax::ext::build::AstBuilder;
 use syntax::parse::token;
-use syntax::parse::token::InternedString;
 use syntax::codemap::{Span, mk_sp};
 use std::gc::{Gc, GC};
 
@@ -58,17 +57,64 @@ macro_rules! ranged_type_impl_inner( ($ident: ident, $Which: ident, $which: iden
 #[macro_export]
 macro_rules! ranged_type( ($ident: ident, $lower: expr, $upper: expr) => (
 	ranged_type_enumdef!($ident, $lower, $upper)
+	impl $ident
+	{
+		#[inline(always)]
+		unsafe fn from_primitive_internal(x: i64) -> $ident
+		{
+			if cfg!(target_endian = "little")
+			{
+				std::mem::transmute_copy(&x)
+			}
+			else
+			{
+				//TODO: verify that this is correct on big-endian
+				//out_width will always be >= in_width since we transmute from i64 to a smaller enum
+				let out_width = std::mem::size_of::<$ident>();
+				let in_width = std::mem::size_of::<i64>();
+				let addr = &x as *const _ as uint + in_width - out_width;
+				std::mem::transmute_copy(&*(addr as *const i64))
+			}
+		}
+	}
+	impl std::num::Bounded for $ident
+	{
+		fn min_value() -> $ident {unsafe {$ident::from_primitive_internal($lower)}}
+		fn max_value() -> $ident {unsafe {$ident::from_primitive_internal($upper)}}
+	}
+	impl std::num::FromPrimitive for $ident
+	{
+		#[inline(always)]
+		fn from_i64(x: i64) -> Option<$ident>
+		{
+			let min: $ident = std::num::Bounded::min_value();
+			let max: $ident = std::num::Bounded::max_value();
+			if x >= min as i64 && x <= max as i64
+			{
+				Some(unsafe {std::mem::transmute_copy(&x)})
+			}
+			else
+			{
+				None
+			}
+		}
+		#[inline(always)]
+		fn from_u64(x: u64) -> Option<$ident>
+		{
+			let i64_max: i64 = std::num::Bounded::max_value();
+			if x > i64_max as u64
+			{
+				return None
+			}
+			std::num::FromPrimitive::from_i64(x as i64)
+		}
+	}
 	impl std::fmt::Show for $ident
 	{
 		fn fmt(&self, formatter: &mut std::fmt::Formatter) -> Result<(), std::fmt::FormatError>
 		{
 			(*self as int).fmt(formatter)
 		}
-	}
-	impl std::num::Bounded for $ident
-	{
-		fn min_value() -> $ident {std::num::FromPrimitive::from_int($lower).unwrap()}
-		fn max_value() -> $ident {std::num::FromPrimitive::from_int($upper).unwrap()}
 	}
 
 	ranged_type_impl_inner!($ident, Sub, sub, CheckedSub, checked_sub, checked_sub_internal)
@@ -160,12 +206,7 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
 		variants.push(box(GC) cx.variant(sp/*TODO: some span*/, ident, vec![]));
 	}
 
-	//add "#[deriving(FromPrimitive)]"
-	let mut item = (*cx.item_enum(sp, base_name.ident, ast::EnumDef {variants: variants})).clone();
-	let fromprimitive = cx.meta_word(sp/*TODO: no span*/, InternedString::new("FromPrimitive"));
-	let deriving_fromprimitive = cx.attribute(sp/*TODO: no span*/, cx.meta_list(sp/*TODO: no span*/, InternedString::new("deriving"), vec![fromprimitive]));
-	item.attrs = vec![deriving_fromprimitive];
-	MacItem::new(box(GC) item)
+	return MacItem::new(cx.item_enum(sp, base_name.ident, ast::EnumDef {variants: variants}));
 }
 
 #[allow(dead_code)]

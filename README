@@ -5,7 +5,6 @@ This implementation is still very rudimentary, but the useful parts are the proc
 Bugs:
 	- This is the simplest implementation that might possibly work. It is based on enums, and large numbers of variants can bloat compile times or overflow the compiler's stack.
 	- Only the Checked{Add, Sub, Mul, Div} traits are implemented yet; other operations require a manual trip through int conversions.
-	- Deriving(FromPrimitive) generates very large code instead of the simple check-and-transmute that could be used with a manual impl.
 	- Types prescribe, not track, ranges. The latter (like in ATS) would require type wrangling that is difficult or impossible in Rust.
 
 Nonetheless, hopefully some parts of this project will be found useful or will make it a little easier to write even safer programs in Rust.
